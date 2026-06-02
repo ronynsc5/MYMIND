@@ -1027,5 +1027,31 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 <script src="./ai-bridge-color-patch.js"></script>
 
 
+
+<!-- FLOATING NOTE MODAL -->
+<div id="note-float" style="
+  display:none; position:fixed; z-index:500;
+  background:var(--bg); border:1px solid var(--border);
+  border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.35);
+  width:280px; min-height:180px;
+  flex-direction:column; overflow:hidden;
+">
+  <div id="note-float-header" style="
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 14px; border-bottom:1px solid var(--border);
+    cursor:move; user-select:none; background:var(--bg2);
+  ">
+    <span style="font-size:13px; font-weight:600; color:var(--text)">📝 Nota</span>
+    <button id="note-float-close" style="
+      background:none; border:none; cursor:pointer;
+      color:var(--text3); font-size:16px; padding:0 4px; line-height:1;
+    ">×</button>
+  </div>
+  <textarea id="note-float-text" placeholder="Escreva sua nota..." style="
+    flex:1; width:100%; min-height:140px; padding:12px 14px;
+    background:transparent; border:none; outline:none; resize:none;
+    font-size:13px; color:var(--text); font-family:inherit; box-sizing:border-box;
+  "></textarea>
+</div>
 </body>
 </html>
