@@ -1517,7 +1517,8 @@ Regras:
     if(!btn) return;
 
     btn.addEventListener('click', async function(){
-      if(!window.nodes || nodes.length === 0) {
+      const _nodes = window.MySpace_getNodes ? window.MySpace_getNodes() : (typeof nodes !== 'undefined' ? nodes : []);
+      if(!_nodes || _nodes.length === 0) {
         showLayoutToast('⚠️ Nenhum card no canvas.', '#f59e0b');
         return;
       }
@@ -1527,7 +1528,7 @@ Regras:
       showLayoutToast('🤖 Analisando o mapa...', '#8b5cf6');
 
       try {
-        const nodesData = nodes.map(n => ({ id:n.id, title:n.title||'', note:n.note||'', type:n.type }));
+        const nodesData = _nodes.map(n => ({ id:n.id, title:n.title||'', note:n.note||'', type:n.type }));
         const result = await callAIForLayout(nodesData);
 
         if(!result.positions || !Array.isArray(result.positions)) throw new Error('Resposta inválida da IA');
@@ -1535,8 +1536,12 @@ Regras:
         // Aplica posições
         let moved = 0;
         result.positions.forEach(p => {
-          const n = nodes.find(n => String(n.id) === String(p.id));
-          if(n) { n.x = p.x; n.y = p.y; moved++; }
+          if(window.MySpace_updateNode) {
+            if(window.MySpace_updateNode(p.id, {x: p.x, y: p.y})) moved++;
+          } else {
+            const n = (typeof nodes !== 'undefined') ? nodes.find(n => String(n.id) === String(p.id)) : null;
+            if(n) { n.x = p.x; n.y = p.y; moved++; }
+          }
         });
 
         saveHist();
