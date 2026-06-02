@@ -1414,3 +1414,143 @@ setTimeout(function(){
     catch(e) { return []; }
   };
 })();
+// ── AUTO-LAYOUT IA ──────────────────────────────────────────────
+(function(){
+  'use strict';
+
+  const SETTINGS_KEY = 'myspace-ai-settings';
+
+  function getAISettings() {
+    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch(_) { return {}; }
+  }
+
+  async function callAIForLayout(nodesData) {
+    const s = getAISettings();
+    const keys = s.keys || {};
+    const models = s.models || {};
+
+    const prompt = `Você é um organizador de mapas mentais. Analise os cards abaixo e reorganize-os no layout mais adequado ao conteúdo (roteiro linear, árvore, radial, timeline, etc).
+
+Cards:
+${nodesData.map(n => `- id:"${n.id}" titulo:"${n.title||''}" nota:"${(n.note||'').slice(0,80)}"`).join('\n')}
+
+Responda APENAS com JSON válido, sem texto fora do JSON:
+{
+  "layout": "linear|tree|radial|timeline",
+  "reasoning": "breve explicação",
+  "positions": [
+    {"id": "ID_DO_CARD", "x": 100, "y": 200}
+  ]
+}
+
+Regras:
+- Use layout LINEAR (horizontal, espaçamento x+280) para roteiros, sequências, fluxos
+- Use layout TREE (hierárquico) para hierarquias, categorias
+- Use layout RADIAL para mapas mentais
+- Espaçamento mínimo 280px entre cards horizontal, 200px vertical
+- Comece em x:100, y:300
+- Retorne posição para TODOS os ${nodesData.length} cards`;
+
+    // Tenta via proxy Vercel primeiro
+    try {
+      const res = await fetch('/api/ai-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, keys, models, history: [] })
+      });
+      const data = await res.json();
+      const text = (data.text || data.reply || '').replace(/```json|```/g,'').trim();
+      return JSON.parse(text);
+    } catch(_) {}
+
+    // Fallback: chama provider direto
+    const PROVIDERS = [
+      { id:'groq', endpoint:'https://api.groq.com/openai/v1/chat/completions', auth:'Bearer', defaultModel:'llama-3.3-70b-versatile' },
+      { id:'gemini', endpoint:null }, // tratado separado
+      { id:'openai', endpoint:'https://api.openai.com/v1/chat/completions', auth:'Bearer', defaultModel:'gpt-4o-mini' },
+    ];
+
+    for(const p of PROVIDERS) {
+      const key = keys[p.id];
+      if(!key) continue;
+      try {
+        if(p.id === 'gemini') {
+          const model = models['gemini'] || 'gemini-2.0-flash';
+          const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ contents:[{ parts:[{text: prompt}] }] })
+          });
+          const d = await r.json();
+          const text = (d.candidates?.[0]?.content?.parts?.[0]?.text||'').replace(/```json|```/g,'').trim();
+          return JSON.parse(text);
+        }
+        const r = await fetch(p.endpoint, {
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':`${p.auth} ${key}`},
+          body: JSON.stringify({ model: models[p.id]||p.defaultModel, messages:[{role:'user',content:prompt}], max_tokens:2000 })
+        });
+        const d = await r.json();
+        const text = (d.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
+        return JSON.parse(text);
+      } catch(_) { continue; }
+    }
+    throw new Error('Nenhum provider configurado com API key válida.');
+  }
+
+  function showLayoutToast(msg, color) {
+    let t = document.getElementById('ai-layout-toast');
+    if(!t) {
+      t = document.createElement('div');
+      t.id = 'ai-layout-toast';
+      t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1e1e1e;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;border:1px solid #333;transition:opacity 0.3s;pointer-events:none;';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.borderColor = color || '#333';
+    t.style.opacity = '1';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(()=>{ t.style.opacity='0'; }, 3000);
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    const btn = document.getElementById('btn-ai-layout');
+    if(!btn) return;
+
+    btn.addEventListener('click', async function(){
+      if(!window.nodes || nodes.length === 0) {
+        showLayoutToast('⚠️ Nenhum card no canvas.', '#f59e0b');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ti ti-loader-2"></i>';
+      showLayoutToast('🤖 Analisando o mapa...', '#8b5cf6');
+
+      try {
+        const nodesData = nodes.map(n => ({ id:n.id, title:n.title||'', note:n.note||'', type:n.type }));
+        const result = await callAIForLayout(nodesData);
+
+        if(!result.positions || !Array.isArray(result.positions)) throw new Error('Resposta inválida da IA');
+
+        // Aplica posições
+        let moved = 0;
+        result.positions.forEach(p => {
+          const n = nodes.find(n => String(n.id) === String(p.id));
+          if(n) { n.x = p.x; n.y = p.y; moved++; }
+        });
+
+        saveHist();
+        draw();
+        triggerSave();
+
+        const layoutName = { linear:'Linear', tree:'Árvore', radial:'Radial', timeline:'Timeline' }[result.layout] || result.layout;
+        showLayoutToast(`✨ Reorganizado em ${layoutName} — ${moved} cards`, '#22c55e');
+      } catch(err) {
+        showLayoutToast('❌ ' + err.message, '#ef4444');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-wand"></i>';
+      }
+    });
+  });
+})();
