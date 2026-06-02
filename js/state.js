@@ -1064,7 +1064,13 @@ cvs.addEventListener('mousedown', e=>{
 
   if(['card','folder','note','text','image','wormhole'].includes(mode)) {
     const t = mode==='text'?'note':mode;
-    const nn=createNode(mx-100,my-60,t);
+    // Evita criar em cima de outro nó — desloca até achar posição livre
+    let px=mx-100, py=my-60;
+    let attempts=0;
+    while(nodes.some(n=>Math.abs(n.x-px)<40&&Math.abs(n.y-py)<40) && attempts++<8){
+      px+=40; py+=40;
+    }
+    const nn=createNode(px,py,t);
     if(mode==='text') { nn.type='card'; nn.note='Texto'; nn.title=''; nn.emoji=''; nn.bgColor='none'; nn.borderColor='none'; }
     if(mode==='image') { nn.type='card'; nn.title=''; nn.note=''; nn.emoji=''; nn.bgColor='none'; nn.borderColor='none'; nn.borderWidth=0; setTimeout(()=>document.getElementById('image-file').click(),0); }
     if(mode==='wormhole') { nn.type='card'; nn.title='Wormhole'; nn.note='#Projeto'; nn.emoji='🌀'; nn.bgColor='#e9d5ff'; nn.borderColor='#8b5cf6'; nn.actions=[{type:'wormhole',dest:'#Projeto'}]; }
@@ -1284,9 +1290,58 @@ function selectNodeObj(node) {
   selectedNode=node; selectedConn=null;
   const rp=document.getElementById('right-panel');
   const bb=document.getElementById('bottom-bar');
-  if(node) { rp.classList.add('show'); bb.classList.add('show'); updatePanel(); }
-  else { rp.classList.remove('show'); bb.classList.remove('show'); }
+  if(node) {
+    bb.classList.add('show');
+    updatePanel();
+    rp.classList.add('show');
+  } else {
+    rp.classList.remove('show');
+    bb.classList.remove('show');
+  }
 }
+
+// ── FLOATING NOTE PANEL ──────────────────────────────────────────
+(function(){
+  const nf = document.getElementById('note-float');
+  const nfText = document.getElementById('note-float-text');
+  const nfClose = document.getElementById('note-float-close');
+  if(!nf) return;
+
+  let _dragging=false, _dx=0, _dy=0;
+
+  document.getElementById('note-float-header').addEventListener('mousedown', function(e){
+    _dragging=true;
+    _dx=e.clientX-nf.offsetLeft;
+    _dy=e.clientY-nf.offsetTop;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e){
+    if(!_dragging) return;
+    nf.style.left=(e.clientX-_dx)+'px';
+    nf.style.top=(e.clientY-_dy)+'px';
+  });
+  document.addEventListener('mouseup', function(){ _dragging=false; });
+
+  nfClose.addEventListener('click', function(){
+    nf.style.display='none';
+    selectNodeObj(null);
+  });
+
+  nfText.addEventListener('input', function(){
+    if(selectedNode) { selectedNode.note=nfText.value; triggerSave(); draw(); }
+  });
+
+  window.openNoteFloat = function(node){
+    const rect = document.getElementById('cvs').getBoundingClientRect();
+    const sx = (node.x + node.width/2) * camera.zoom + camera.x + rect.left;
+    const sy = node.y * camera.zoom + camera.y + rect.top;
+    nf.style.display='flex';
+    nf.style.left = Math.min(sx, window.innerWidth-300)+'px';
+    nf.style.top  = Math.max(sy - 220, 60)+'px';
+    nfText.value = node.note||'';
+    setTimeout(()=>nfText.focus(),50);
+  };
+})();
 
 function selectConnObj(conn) {
   selectedConn=conn; selectedNode=null;
@@ -1346,6 +1401,7 @@ function jumpToNode(found) {
 function activateNode(node) {
   if(!node) return false;
   if(node.type==='folder') { openFolder(node); return true; }
+  if(node.type==='note') { if(typeof openNoteFloat==='function') openNoteFloat(node); return true; }
   const firstAction=(node.actions||[])[0];
   if(firstAction) { runAction(firstAction); return true; }
   const hash = normalizeHashTarget(node.linkTarget || node.note || node.title);
